@@ -17,6 +17,66 @@ from openai import OpenAI
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
+st.set_page_config(
+    page_title="StockEd — Virtual Investment Terminal",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# --- MODERN FINTECH UI STYLING & CUSTOM CSS ---
+def load_custom_css():
+    st.markdown("""
+    <style>
+        /* Main font */
+        .stApp {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        
+        /* Theme-adaptive metric cards (looks great in both Light and Dark mode) */
+        div[data-testid="stMetric"] {
+            background-color: rgba(128, 128, 128, 0.05) !important;
+            border: 1px solid rgba(128, 128, 128, 0.2) !important;
+            padding: 16px !important;
+            border-radius: 12px !important;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+        
+        div[data-testid="stMetric"]:hover {
+            border-color: rgba(128, 128, 128, 0.4) !important;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Allow Streamlit to handle text colors dynamically based on light/dark mode */
+        div[data-testid="stMetric"] label {
+            font-weight: 600 !important;
+        }
+        div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+            font-weight: 800 !important;
+        }
+
+        /* Sleek header styling */
+        h1, h2, h3 {
+            font-weight: 700;
+            letter-spacing: -0.025em;
+        }
+
+        /* Custom styling for tabs */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            border-radius: 8px 8px 0px 0px;
+            padding: 10px 20px;
+            font-weight: 600;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+load_custom_css()
+
 # Initialize the OpenAI client pointing to NVIDIA NIM
 client = OpenAI(
   base_url = "https://integrate.api.nvidia.com/v1",
@@ -602,16 +662,16 @@ else:
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            st.metric("💵 Wallet", f"${user['wallet_balance']:,.2f}")
+            st.metric("💵 Available Wallet", f"${user['wallet_balance']:,.2f}", delta="Liquid Cash")
 
         with col2:
-            st.metric("📊 Invested", f"${total_invested:,.2f}")
+            st.metric("📊 Total Invested", f"${total_invested:,.2f}", delta="Active Capital")
 
         with col3:
-            st.metric("📈 Profit / Loss", f"${profit:,.2f}")
+            st.metric("📈 Net Profit / Loss", f"${profit:,.2f}", delta=f"{'+' if profit >= 0 else ''}${profit:,.2f}")
 
         with col4:
-            st.metric("💎 Net Worth", f"${net_worth:,.2f}")
+            st.metric("💎 Portfolio Net Worth", f"${net_worth:,.2f}", delta="Total Assets")
 
         st.markdown("---")
 
@@ -619,6 +679,7 @@ else:
 
         # ---------------- Portfolio ----------------
 # ---------------- Portfolio ----------------
+        # ---------------- Portfolio ----------------
         # ---------------- Portfolio ----------------
         with tabs[0]:
             st.subheader("Your Portfolio")
@@ -634,7 +695,7 @@ else:
                 ))
                 total_profit_loss += (val - principal)
 
-            # Calculate profit from holdings (Shares, Real Estate, Commodities, ETFs)
+            # Calculate profit from holdings (Shares, Real Estate, Commodities, Bonds, ETFs)
             for h in holdings:
                 _, asset_class, sub_asset, ticker, units, invested, avg_price, _ = h
                 if asset_class in ["Shares", "Real Estate", "Dividend ETFs & Index Funds"]:
@@ -677,12 +738,9 @@ else:
 
             st.markdown("---")
 
-            # =========================================================================
-            # --- 2. ADD STEP 2 CODE HERE: ASSET ALLOCATION BREAKDOWN PIE CHART ---
-            # =========================================================================
+            # --- 2. ASSET ALLOCATION BREAKDOWN PIE CHART ---
             st.markdown("### 📊 Portfolio Asset Allocation")
             
-            # Aggregate invested amounts per asset class
             allocation_dict = {
                 "Fixed Income (FDs & Bonds)": sum(fd[1] for fd in fds),
                 "Shares": 0.0,
@@ -698,13 +756,11 @@ else:
                 else:
                     allocation_dict[asset_class] = invested
 
-            # Filter out classes with 0 investment to keep the pie chart clean
             active_allocations = {k: v for k, v in allocation_dict.items() if v > 0}
 
             if active_allocations:
                 df_alloc = pd.DataFrame(list(active_allocations.items()), columns=["Asset Class", "Invested Amount"])
                 
-                # Create interactive Plotly donut chart
                 fig_pie = px.pie(
                     df_alloc, 
                     names="Asset Class", 
@@ -719,20 +775,49 @@ else:
 
             st.markdown("---")
 
-            # --- 3. YOUR EXISTING DETAILED HOLDINGS TABLE ---
+            # --- 3. DETAILED HOLDINGS & ASSETS TABLE (Including FDs & Bonds) ---
             st.markdown("### Active Holdings & Assets")
             if not holdings and not fds:
                 st.info("Your portfolio is currently empty! Head over to the asset marketplaces to make your first trade.")
             else:
                 rows = []
+                
+                # Include Active Fixed Deposits in the table
+                for fd in fds:
+                    fd_id, principal, rate, tenure, start_date, maturity_date, status = fd
+                    val = principal * ((1 + rate / 365) ** max(
+                        (datetime.date.today() - datetime.date.fromisoformat(start_date)).days, 0
+                    ))
+                    rows.append({
+                        "Asset Class": "Fixed Income (Bank FD)",
+                        "Name / Ticker": f"FD #{fd_id} ({tenure}M @ {rate*100:.1f}%)",
+                        "Units / Shares": 1.0,
+                        "Invested ($)": f"${principal:,.2f}",
+                        "Current Value ($)": f"${val:,.2f}"
+                    })
+
+                # Include Holdings & Treasury Bonds in the table
                 for h in holdings:
                     _, asset_class, sub_asset, ticker, units, invested, avg_price, _ = h
+                    if asset_class in ["Shares", "Real Estate", "Dividend ETFs & Index Funds"]:
+                        ticker = ticker or ("NVDA" if asset_class == "Shares" else "O")
+                        price = get_latest_price(ticker) or avg_price
+                        current_val = units * price
+                    elif asset_class == "Metals & Oil":
+                        ticker = ticker or COMMODITY_TICKERS.get(sub_asset, "GC=F")
+                        price = get_latest_price(ticker) or avg_price
+                        current_val = units * price
+                    else:  # Treasury Bonds / Fixed Income holdings
+                        current_val = invested
+
                     rows.append({
                         "Asset Class": asset_class,
                         "Name / Ticker": sub_asset or ticker,
                         "Units / Shares": units,
-                        "Invested ($)": f"${invested:,.2f}"
+                        "Invested ($)": f"${invested:,.2f}",
+                        "Current Value ($)": f"${current_val:,.2f}"
                     })
+
                 if rows:
                     st.dataframe(rows, use_container_width=True)
 
@@ -829,7 +914,6 @@ else:
                         # Using live 10-year treasury yield ticker from Yahoo Finance (^TNX represents 10-year yield %)
                         bond_ticker = "^TNX"
                         bond_yield_raw = get_latest_price(bond_ticker)
-                        # ^TNX returns yield as percentage index (e.g. 4.25 means 4.25%)
                         annual_bond_rate = (bond_yield_raw / 100.0) if bond_yield_raw else 0.0425
 
                         st.metric("Current 10-Year Treasury Yield Benchmark", f"{annual_bond_rate * 100:.2f}% per year")
@@ -858,6 +942,43 @@ else:
                                 update_wallet(user["username"], user["wallet_balance"])
                                 st.success(f"Successfully purchased ${bond_investment:,.2f} in Government Treasury Bonds yielding {annual_bond_rate * 100:.2f}%!")
                                 st.rerun()
+
+                        # --- NEW: DISPLAY ACTIVE TREASURY BONDS & LIQUIDATION OPTION ---
+                        st.markdown("---")
+                        st.markdown("### Your Active Treasury Bonds")
+                        
+                        holdings = get_holdings(user["username"])
+                        active_bonds = [h for h in holdings if h[1] == "Fixed Income (FDs & Bonds)"]
+
+                        if not active_bonds:
+                            st.info("No active Treasury Bonds owned.")
+                        else:
+                            bond_map = {
+                                h[0]: f"{h[2]} — Invested: ${h[5]:,.2f}"
+                                for h in active_bonds
+                            }
+
+                            chosen_bond_id = st.selectbox(
+                                "Select Treasury Bond Holding",
+                                list(bond_map.keys()),
+                                format_func=lambda x: bond_map[x],
+                                key="select_bond_to_sell"
+                            )
+
+                            if st.button("Liquidate Selected Bond"):
+                                selected_holding = next(h for h in active_bonds if h[0] == chosen_bond_id)
+                                holding_id, _, sub_asset, ticker, units, invested_amt, avg_price, _ = selected_holding
+                                
+                                success, msg, proceeds = sell_asset(
+                                    user["username"], "Fixed Income (FDs & Bonds)", sub_asset, ticker, units, avg_price
+                                )
+                                if success:
+                                    user["wallet_balance"] += proceeds
+                                    update_wallet(user["username"], user["wallet_balance"])
+                                    st.success(f"Successfully liquidated bond and recovered ${proceeds:,.2f} to your wallet.")
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
 
                 elif asset == "Shares":
                     st.markdown("### 📈 Shares Marketplace & Real-World Investment Analysis")
@@ -1408,47 +1529,105 @@ else:
                                 st.success(f"Successfully acquired {selected_prop['name']} into your portfolio!")
                                 st.rerun()
 
-        # ---------------- AI Advisor Tab ----------------
-        # Inside your AI Advisor tab / section
-        # Inside your AI Advisor tab / section
+# ---------------- AI Advisor Tab ----------------
 st.subheader("🤖 AI Financial Advisor (Powered by NVIDIA Nemotron)")
-st.write("Ask any question about investing, market trends, or portfolio risk!")
+st.caption("Your personal GPU-accelerated mentor ready to evaluate strategies, explain market terms, and guide your financial growth.")
 
-# 1. The search/input bar where the user types their question
+# --- 1. AI PERSONA SELECTOR ---
+col_p1, col_p2 = st.columns([1, 2])
+with col_p1:
+    ai_persona = st.selectbox(
+        "Choose AI Mentor Style",
+        [
+            "Pragmatic & Safety-First Mentor",
+            "Aggressive Wealth Builder",
+            "Passive Income & Dividend Specialist"
+        ],
+        key="ai_persona_selector"
+    )
+
+with col_p2:
+    st.markdown(f"**Active Mode:** `{ai_persona}` — Tailoring responses to your chosen strategy.")
+
+st.markdown("---")
+
+# Initialize session state for storing the active prompt if not present
+if "ai_prompt_to_run" not in st.session_state:
+    st.session_state.ai_prompt_to_run = ""
+
+# --- 2. QUICK SUGGESTION PILLS ---
+st.markdown("##### 💡 Quick Questions to Get Started:")
+quick_col1, quick_col2, quick_col3, quick_col4 = st.columns(4)
+
+with quick_col1:
+    if st.button("What is a P/E Ratio?"):
+        st.session_state.ai_prompt_to_run = "Explain what a P/E ratio is in simple terms for a beginner investor."
+with quick_col2:
+    if st.button("How to build passive income?"):
+        st.session_state.ai_prompt_to_run = "What are the best safe ways to build a reliable stream of passive income?"
+with quick_col3:
+    if st.button("Is market risky right now?"):
+        st.session_state.ai_prompt_to_run = "How should a beginner handle market volatility and risk?"
+with quick_col4:
+    if st.button("Diversification Tips"):
+        st.session_state.ai_prompt_to_run = "Why is portfolio diversification important across stocks, real estate, and commodities?"
+
+st.markdown("---")
+
+# --- 3. CUSTOM TYPED INPUT BOX ---
 user_question = st.text_input(
-    "Ask your question:", 
-    placeholder="e.g., What does P/E ratio mean, or is it risky to put all money in one stock?"
+    "Or type your own question here:", 
+    placeholder="e.g., Is it risky to put all my virtual money into tech stocks?"
 )
 
-# 2. Trigger the API call when the user clicks the button
-if st.button("Ask Advisor"):
-    if user_question:
-        with st.spinner("Nemotron is thinking..."):
+# If the user typed something, override the quick button state
+if user_question.strip():
+    st.session_state.ai_prompt_to_run = user_question.strip()
+
+# --- 4. EXECUTION BUTTON ---
+ask_clicked = st.button("Ask NVIDIA Nemotron", type="primary")
+
+# --- 5. DISPLAY AI RESPONSE NORMALLY ACROSS FULL WIDTH ---
+if ask_clicked or st.session_state.ai_prompt_to_run:
+    target_prompt = st.session_state.ai_prompt_to_run
+    
+    if target_prompt:
+        with st.spinner("NVIDIA Nemotron is analyzing market data and generating advice..."):
             try:
+                system_content = f"You are an expert financial mentor operating in '{ai_persona}' mode. Keep answers concise, highly structured, encouraging, and easy for beginners to understand."
+                
                 completion = client.chat.completions.create(
                     model="nvidia/nemotron-3.5-lightning-30b-a3b",
                     messages=[
-                        {"role": "system", "content": "You are a helpful financial mentor for beginners. Keep answers clear and short."},
-                        {"role": "user", "content": user_question}
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": target_prompt}
                     ],
                     temperature=0.3,
-                    max_tokens=2048,  # Raised higher so it has room to reply
+                    max_tokens=2048,
                     extra_body={
                         "chat_template_kwargs": {
-                            "enable_thinking": False  # Turns off internal reasoning traces so it answers immediately
+                            "enable_thinking": False
                         }
                     }
                 )
                 
                 ai_answer = completion.choices[0].message.content
                 
-                # Double-check to ensure we don't print "None" if something goes wrong
                 if ai_answer:
-                    st.info(ai_answer)
+                    st.markdown("---")
+                    st.markdown(f"### 🧠 NVIDIA AI Advisor Insights")
+                    st.caption(f"**Query:** *{target_prompt}*")
+                    
+                    # Display the response normally in a clean, full-width container box
+                    st.success(ai_answer)
+                    st.info("📌 **Actionable Tip:** Practice applying this advice directly inside your Portfolio or Marketplace tabs!")
+                    
+                    # Clear the trigger state so it doesn't loop awkwardly on future reruns
+                    st.session_state.ai_prompt_to_run = ""
                 else:
-                    st.warning("The AI returned an empty response. Try asking a different question.")
+                    st.warning("The AI returned an empty response. Please try asking again.")
                     
             except Exception as e:
                 st.error(f"Error communicating with NVIDIA API: {e}")
     else:
-        st.warning("Please type a question first!")
+        st.warning("Please type a question or click one of the quick suggestion buttons above!")
